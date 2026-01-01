@@ -1,15 +1,22 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_movie/views/login.dart';
 import 'package:go_router/go_router.dart';
 import '../views/main_navigation.dart';
+import '../views/detail_movie.dart';
 
 /// 应用路由配置
 /// 使用go_router进行路由管理
 class AppRouter {
   /// 路由配置
   static final GoRouter router = GoRouter(
-    initialLocation: '/',
+    initialLocation: '/login',
     routes: [
       // 主导航页面（包含底部导航栏）
+      GoRoute(
+        path: '/login',
+        name: 'login',
+        builder: (context, state) => const Login(),
+      ),
       GoRoute(
         path: '/',
         name: 'main',
@@ -17,14 +24,14 @@ class AppRouter {
       ),
 
       // 电影详情页路由
-      // GoRoute(
-      //   path: '/movie/:id',
-      //   name: 'movie-detail',
-      //   builder: (context, state) {
-      //     final movieId = int.parse(state.pathParameters['id']!);
-      //     return MovieDetailPage(movieId: movieId);
-      //   },
-      // ),
+      GoRoute(
+        path: '/movie/:id',
+        name: 'movie-detail',
+        builder: (context, state) {
+          final movieId = int.parse(state.pathParameters['id']!);
+          return DetailMovie(movieId: movieId);
+        },
+      ),
     ],
 
     // 错误页面

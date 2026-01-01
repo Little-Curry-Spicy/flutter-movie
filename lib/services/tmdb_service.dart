@@ -1,11 +1,13 @@
 import 'package:dio/dio.dart';
-import '../config/app_config.dart';
+import 'package:flutter_movie/services/base_response.dart';
 import '../models/genre.dart';
+import '../models/movie.dart';
 import '../models/movie_detail.dart';
 import '../models/movie_response.dart';
 import '../utils/logger.dart';
+import 'http_service.dart';
 
-/// TMDb API服务类
+/// 电影 API 服务类（本地 Swagger API）
 /// 使用 Dio 进行网络请求，提供更好的错误处理和拦截器支持
 class TmdbService {
   // 私有构造函数，实现单例模式
@@ -15,67 +17,10 @@ class TmdbService {
   static final TmdbService _instance = TmdbService._();
   static TmdbService get instance => _instance;
 
-  // Dio 实例（懒加载初始化）
-  Dio? _dio;
+  /// 使用共享的 Dio 实例
+  Dio get dio => HttpService.instance.dio;
 
-  /// 获取 Dio 实例（懒加载）
-  Dio get dio {
-    _dio ??= _createDio();
-    return _dio!;
-  }
-
-  /// 创建并配置 Dio 客户端
-  Dio _createDio() {
-    final dioInstance = Dio(
-      BaseOptions(
-        baseUrl: AppConfig.tmdbApiBaseUrl,
-        connectTimeout: Duration(seconds: AppConfig.requestTimeout),
-        receiveTimeout: Duration(seconds: AppConfig.requestTimeout),
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-      ),
-    );
-
-    // 添加请求拦截器（用于日志记录和自动添加API key）
-    dioInstance.interceptors.add(
-      InterceptorsWrapper(
-        onRequest: (options, handler) {
-          // 自动添加 API key 到查询参数
-          options.queryParameters['api_key'] = AppConfig.tmdbApiKey;
-
-          Logger.debug('请求: ${options.method} ${options.uri}', 'TmdbService');
-          Logger.debug('请求参数: ${options.queryParameters}', 'TmdbService');
-          return handler.next(options);
-        },
-        onResponse: (response, handler) {
-          Logger.debug(
-            '响应: ${response.statusCode} ${response.requestOptions.uri}',
-            'TmdbService',
-          );
-          Logger.debug(
-            '响应数据长度: ${response.data.toString().length}',
-            'TmdbService',
-          );
-          return handler.next(response);
-        },
-        onError: (error, handler) {
-          Logger.error(
-            '请求失败: ${error.requestOptions.uri}',
-            error.error,
-            error.stackTrace,
-            'TmdbService',
-          );
-          return handler.next(error);
-        },
-      ),
-    );
-
-    return dioInstance;
-  }
-
-  /// 获取正在上映的电影
+  /// 获取正在上映的电影（使用 /movies 接口）
   /// [page] 页码，默认为1
   /// [language] 语言代码，默认为zh-CN
   /// 返回电影列表响应
@@ -85,7 +30,7 @@ class TmdbService {
   }) async {
     try {
       final response = await dio.get(
-        '/movie/now_playing',
+        '/movies',
         queryParameters: {'language': language, 'page': page},
       );
 
@@ -108,7 +53,7 @@ class TmdbService {
   }) async {
     try {
       final response = await dio.get(
-        '/movie/popular',
+        '/movies/popular',
         queryParameters: {'language': language, 'page': page},
       );
 
@@ -121,7 +66,7 @@ class TmdbService {
     }
   }
 
-  /// 获取即将上映的电影
+  /// 获取最新电影（使用 /movies/latest 接口）
   /// [page] 页码，默认为1
   /// [language] 语言代码，默认为zh-CN
   /// 返回电影列表响应
@@ -131,15 +76,15 @@ class TmdbService {
   }) async {
     try {
       final response = await dio.get(
-        '/movie/upcoming',
+        '/movies/latest',
         queryParameters: {'language': language, 'page': page},
       );
 
       return _handleMovieResponse(response);
     } on DioException catch (e) {
-      throw _handleDioError(e, '获取即将上映的电影失败');
+      throw _handleDioError(e, '获取最新电影失败2');
     } catch (e, stackTrace) {
-      Logger.error('获取即将上映的电影失败', e, stackTrace, 'TmdbService');
+      Logger.error('获取最新电影失败3', e, stackTrace, 'TmdbService');
       rethrow;
     }
   }
@@ -154,7 +99,7 @@ class TmdbService {
   }) async {
     try {
       final response = await dio.get(
-        '/movie/top_rated',
+        '/movies/top-rated',
         queryParameters: {'language': language, 'page': page},
       );
 
@@ -167,7 +112,7 @@ class TmdbService {
     }
   }
 
-  /// 获取热门趋势电影
+  /// 获取热门趋势电影（使用 /movies 接口，可能需要其他参数）
   /// [timeWindow] 时间窗口，可选值: 'day' (今日) 或 'week' (本周)，默认为 'day'
   /// [page] 页码，默认为1
   /// [language] 语言代码，默认为zh-CN
@@ -178,8 +123,9 @@ class TmdbService {
     String language = 'zh-CN',
   }) async {
     try {
+      // 如果没有专门的 trending 接口，使用 popular 接口
       final response = await dio.get(
-        '/trending/movie/$timeWindow',
+        '/movies/popular',
         queryParameters: {'language': language, 'page': page},
       );
 
@@ -204,8 +150,8 @@ class TmdbService {
   }) async {
     try {
       final response = await dio.get(
-        '/search/movie',
-        queryParameters: {'query': query, 'language': language, 'page': page},
+        '/movies/search',
+        queryParameters: {'q': query, 'language': language, 'page': page},
       );
 
       return _handleMovieResponse(response);
@@ -220,28 +166,33 @@ class TmdbService {
   /// 获取电影类型列表
   /// [language] 语言代码，默认为zh-CN
   /// 返回类型列表
-  Future<GenreListResponse> getMovieGenres({
-    String language = 'zh-CN',
-  }) async {
+  Future<GenreListResponse> getMovieGenres({String language = 'zh-CN'}) async {
     try {
       final response = await dio.get(
-        '/genre/movie/list',
+        '/movies/genres/all',
         queryParameters: {'language': language},
       );
 
-      if (response.statusCode == 200) {
-        try {
-          final jsonData = response.data as Map<String, dynamic>;
-          final genreListResponse = GenreListResponse.fromJson(jsonData);
-          Logger.info('成功获取 ${genreListResponse.genres.length} 个电影类型', 'TmdbService');
-          return genreListResponse;
-        } catch (e, stackTrace) {
-          Logger.error('JSON解析失败', e, stackTrace, 'TmdbService');
-          throw Exception('响应数据格式错误: $e');
-        }
+      // 解析基础响应
+      final baseResponse = BaseResponse.fromJson(
+        response.data as Map<String, dynamic>,
+      );
+
+      Logger.debug(
+        '获取电影类型响应: code=${baseResponse.code}, message=${baseResponse.message}',
+        'TmdbService',
+      );
+
+      if (baseResponse.code == 200) {
+        // GenreListResponse.fromJson 期望接收 BaseResponse 对象
+        final genreListResponse = GenreListResponse.fromJson(baseResponse);
+        Logger.info(
+          '成功获取 ${genreListResponse.genres.length} 个电影类型',
+          'TmdbService',
+        );
+        return genreListResponse;
       } else {
-        Logger.error('请求失败: ${response.statusCode}', null, null, 'TmdbService');
-        throw Exception('请求失败: ${response.statusCode}');
+        throw Exception('请求失败: ${baseResponse.code}');
       }
     } on DioException catch (e) {
       throw _handleDioError(e, '获取电影类型列表失败');
@@ -255,7 +206,7 @@ class TmdbService {
   /// [genreId] 类型ID
   /// [page] 页码，默认为1
   /// [language] 语言代码，默认为zh-CN
-  /// [sortBy] 排序方式，默认为 'popularity.desc'
+  /// [sortBy] 排序方式，默认为 'popularity.desc'（后端暂不支持，固定使用 popularity 降序）
   /// 返回电影列表响应
   Future<MovieResponse> discoverMoviesByGenre({
     required int genreId,
@@ -264,13 +215,17 @@ class TmdbService {
     String sortBy = 'popularity.desc',
   }) async {
     try {
+      // 后端使用 limit 和 offset 进行分页，每页固定 20 条
+      const int limit = 20;
+      final int offset = (page - 1) * limit;
+      
       final response = await dio.get(
-        '/discover/movie',
+        '/movies/genre/$genreId',
         queryParameters: {
-          'with_genres': genreId,
           'language': language,
-          'page': page,
-          'sort_by': sortBy,
+          'limit': limit,
+          'offset': offset,
+          // 注意：后端暂不支持 sortBy 参数，固定使用 popularity 降序排序
         },
       );
 
@@ -286,18 +241,23 @@ class TmdbService {
   /// 获取电影详情
   /// [movieId] 电影ID
   /// [language] 语言代码，默认为zh-CN
-  /// 返回电影详情
+  /// 返回电影详情（包含演员信息和影评）
   Future<MovieDetail> getMovieDetail({
     required int movieId,
     String language = 'zh-CN',
   }) async {
     try {
+      // 获取电影详情（包含演员信息和影评）
       final response = await dio.get(
-        '/movie/$movieId',
-        queryParameters: {'language': language},
+        '/movies/$movieId',
+        queryParameters: {
+          'language': language,
+          'includeCredits': true, // 包含演员信息
+          'includeReviews': true, // 包含影评
+        },
       );
 
-      return _handleMovieDetailResponse(response);
+      return _handleMovieDetailResponse(BaseResponse.fromJson(response.data));
     } on DioException catch (e) {
       throw _handleDioError(e, '获取电影详情失败');
     } catch (e, stackTrace) {
@@ -308,14 +268,13 @@ class TmdbService {
 
   /// 处理电影列表响应
   MovieResponse _handleMovieResponse(Response response) {
-    if (response.statusCode == 200) {
+    if (BaseResponse.fromJson(response.data).code == 200) {
       try {
-        final jsonData = response.data as Map<String, dynamic>;
-        final movieResponse = MovieResponse.fromJson(jsonData);
-        Logger.info('成功获取 ${movieResponse.results.length} 部电影', 'TmdbService');
+        final movieResponse = MovieResponse.fromJson(
+          BaseResponse.fromJson(response.data).data,
+        );
         return movieResponse;
-      } catch (e, stackTrace) {
-        Logger.error('JSON解析失败', e, stackTrace, 'TmdbService');
+      } catch (e) {
         Logger.debug(
           '响应内容: ${response.data.toString().substring(0, response.data.toString().length > 500 ? 500 : response.data.toString().length)}',
           'TmdbService',
@@ -323,14 +282,69 @@ class TmdbService {
         throw Exception('响应数据格式错误: $e');
       }
     } else {
-      Logger.error('请求失败: ${response.statusCode}', null, null, 'TmdbService');
-      throw Exception('请求失败: ${response.statusCode}');
+      Logger.error(
+        '请求失败: ${BaseResponse.fromJson(response.data).code}',
+        null,
+        null,
+        'TmdbService',
+      );
+      throw Exception('请求失败: ${BaseResponse.fromJson(response.data).code}');
+    }
+  }
+
+  /// 获取演员参演的电影列表
+  /// [personId] 演员ID
+  /// [language] 语言代码，默认为zh-CN
+  /// 返回电影列表响应
+  Future<MovieResponse> getPersonMovies({
+    required int personId,
+    String language = 'zh-CN',
+  }) async {
+    try {
+      // 注意：根据 Swagger 文档，/movies/actors/{id} 是获取演员详情
+      // 如果需要获取演员参演的电影，可能需要从演员详情中获取，或者使用其他接口
+      final response = await dio.get(
+        '/movies/actors/$personId',
+        queryParameters: {'language': language},
+      );
+
+      // 处理演员电影列表响应（格式与普通电影列表不同）
+      if (response.statusCode == 200) {
+        try {
+          final jsonData = response.data as Map<String, dynamic>;
+          // 演员电影列表返回的是 cast 字段，需要转换为 MovieResponse 格式
+          final castList = jsonData['cast'] as List<dynamic>? ?? [];
+          final movies = castList
+              .map((movie) => Movie.fromJson(movie as Map<String, dynamic>))
+              .toList();
+
+          // 创建 MovieResponse 对象
+          final movieResponse = MovieResponse(
+            results: movies,
+            total: jsonData['total'] as int,
+          );
+
+          Logger.info('成功获取 ${movies.length} 部电影', 'TmdbService');
+          return movieResponse;
+        } catch (e, stackTrace) {
+          Logger.error('JSON解析失败', e, stackTrace, 'TmdbService');
+          throw Exception('响应数据格式错误: $e');
+        }
+      } else {
+        Logger.error('请求失败: ${response.statusCode}', null, null, 'TmdbService');
+        throw Exception('请求失败: ${response.statusCode}');
+      }
+    } on DioException catch (e) {
+      throw _handleDioError(e, '获取演员电影列表失败');
+    } catch (e, stackTrace) {
+      Logger.error('获取演员电影列表失败', e, stackTrace, 'TmdbService');
+      rethrow;
     }
   }
 
   /// 处理电影详情响应
-  MovieDetail _handleMovieDetailResponse(Response response) {
-    if (response.statusCode == 200) {
+  MovieDetail _handleMovieDetailResponse(BaseResponse response) {
+    if (response.code == 200) {
       try {
         final jsonData = response.data as Map<String, dynamic>;
         final movieDetail = MovieDetail.fromJson(jsonData);
@@ -341,8 +355,7 @@ class TmdbService {
         throw Exception('响应数据格式错误: $e');
       }
     } else {
-      Logger.error('请求失败: ${response.statusCode}', null, null, 'TmdbService');
-      throw Exception('请求失败: ${response.statusCode}');
+      throw Exception('请求失败: ${response.code}');
     }
   }
 

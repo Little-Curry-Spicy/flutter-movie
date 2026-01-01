@@ -32,4 +32,7 @@ class AppConfig {
   static const String posterSizeMedium = 'w500';
   static const String posterSizeLarge = 'w780';
   static const String backdropSizeLarge = 'w1280';
+
+  // 本地 API 配置
+  static const String localApiBaseUrl = 'http://localhost:3000';
 }
